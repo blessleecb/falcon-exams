@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CrowdStrike 문제풀이</title>
+<script>
+// 시험 목록. key = URL(?exam=) 및 localStorage 접두사, file = data/ 아래 문제 파일
+const EXAMS = {
+  cccs: { key: "cccs", id: "CCCS", code: "CCCS-203b", name: "CrowdStrike Certified Cloud Specialist" },
+  ccse: { key: "ccse", id: "CCSE", code: "CCSE-204", name: "CrowdStrike Certified SIEM Engineer" },
+  ccfa: { key: "ccfa", id: "CCFA", code: "CCFA-200b", name: "CrowdStrike Certified Falcon Administrator" },
+};
+const EXAM = EXAMS[(new URLSearchParams(location.search).get("exam") || "").toLowerCase()] || null;
+if (EXAM) document.title = EXAM.code + " 문제풀이";
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ===================== HOME ===================== -->
+  <!-- ===================== EXAM SELECT ===================== -->
+  <section id="view-select" class="view" hidden>
+    <header class="hero">
+      <h1>CrowdStrike 문제풀이</h1>
+      <p class="subtitle">풀어볼 시험을 선택하세요</p>
+    </header>
+    <div class="exam-select" id="examSelect"></div>
+  </section>
+
+  <section id="view-home" class="view" hidden>
+    <header class="hero">
+      <a href="./" class="btn-ghost back-to-select">← 시험 선택</a>
+      <h1 id="examTitle"></h1>
+      <p class="subtitle"><span id="examName"></span> · 총 <span id="totalCount">0</span>문제</p>
+    </header>
+
+    <div class="pool-status">
+      <span>학습 풀 <b id="poolCount">0</b> / <span id="poolTotal">0</span></span>
+      <span class="pool-sep">·</span>
+      <span>풀어본 문제 <b id="attemptedCount">0</b>개</span>
+      <span class="pool-sep">·</span>
+      <span>마스터 완료 <b id="masteredCount">0</b>개</span>
+      <button id="resetMasteryBtn" class="btn-ghost">마스터리 초기화</button>
+    </div>
+
+    <div class="pool-status overall-stats">
+      <span>학습 수: <b id="totalSolvedCount">0</b>문제</span>
+      <span class="pool-sep">·</span>
+      <span>정답률: <b id="overallAccuracyRate" class="rate-value">0%</b></span>
+    </div>
+
+    <div class="mode-grid">
+      <button class="mode-card" data-mode="exam">
+        <div class="mode-icon">📝</div>
+        <div class="mode-title">실전 모의고사</div>
+        <div class="mode-desc">학습 풀 중 랜덤 <span id="examCountDesc">60</span>문제<br>모든 문제를 푼 뒤 채점 &amp; 해설</div>
+      </button>
+      <button class="mode-card" data-mode="random">
+        <div class="mode-icon">🎲</div>
+        <div class="mode-title">랜덤 테스트</div>
+        <div class="mode-desc">학습 풀 중 랜덤 <span id="randomCountDesc">20</span>문제<br>문제마다 바로 정답/해설 확인</div>
+      </button>
+      <button class="mode-card" data-mode="all">
+        <div class="mode-icon">📚</div>
+        <div class="mode-title">전체 문제 풀이</div>
+        <div class="mode-desc">학습 풀 <span id="allCountDesc">102</span>문제를 순서대로<br>문제마다 바로 정답/해설 확인</div>
+      </button>
+      <button class="mode-card" id="wrongNoteCard" data-mode="wrong">
+        <div class="mode-icon">🗒️</div>
+        <div class="mode-title">오답노트</div>
+        <div class="mode-desc">틀렸던 문제만 모아 다시 풀기<br><span id="wrongCount">0</span>문제 저장됨</div>
+      </button>
+      <button class="mode-card" id="weakPointCard" data-mode="weak">
+        <div class="mode-icon">🎯</div>
+        <div class="mode-title">Weak Point</div>
+        <div class="mode-desc"><span id="weakThresholdDesc">2</span>회 이상 틀린 문제만 모아 풀기<br><span id="weakCount">0</span>문제</div>
+      </button>
+      <button class="mode-card" id="dailyStatsCard">
+        <div class="mode-icon">📊</div>
+        <div class="mode-title">일별 통계</div>
+        <div class="mode-desc">날짜별 풀이 문제 수와<br>정답률을 확인</div>
+      </button>
+      <button class="mode-card" id="masteredCard" data-mode="mastered">
+        <div class="mode-icon">🏆</div>
+        <div class="mode-title">마스터 복습</div>
+        <div class="mode-desc">마스터한 문제만 모아 다시 풀기<br><span id="masteredReviewCount">0</span>문제</div>
+      </button>
+    </div>
+
+    <section class="history-section">
+      <div class="history-header">
+        <h2>테스트 이력</h2>
+        <div class="history-header-actions">
+          <button id="exportBtn" class="btn-ghost">기록 내보내기</button>
+          <button id="importBtn" class="btn-ghost">기록 가져오기</button>
+          <input type="file" id="importFileInput" accept="application/json" hidden>
+          <button id="clearHistoryBtn" class="btn-ghost">기록 전체 삭제</button>
+        </div>
+      </div>
+      <div id="historyList" class="history-list">
+        <p class="empty-msg">아직 응시 기록이 없습니다.</p>
+      </div>
+    </section>
+  </section>
+
+  <!-- ===================== QUIZ ===================== -->
+  <section id="view-quiz" class="view" hidden>
+    <div class="quiz-topbar">
+      <button id="quitQuizBtn" class="btn-ghost">← 그만두기</button>
+      <button id="pauseBtn" class="btn-ghost">⏸ 일시정지</button>
+      <button id="finishHereBtn" class="btn-ghost" hidden>여기까지 저장</button>
+      <div class="quiz-progress">
+        <span id="progressText">1 / 60</span>
+        <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+      </div>
+      <div class="quiz-score" id="liveScore"></div>
+    </div>
+
+    <div class="question-card">
+      <div class="question-meta">
+        <span id="qBadge" class="badge"></span>
+        <span id="questionTimer" class="question-timer">⏱ 0:00</span>
+        <span id="qMultiHint" class="hint" hidden>※ 정답이 2개 이상입니다. 모두 선택하세요.</span>
+      </div>
+      <h2 id="qText" class="q-text"></h2>
+      <div id="optionsList" class="options-list"></div>
+
+      <div id="feedbackBox" class="feedback-box" hidden>
+        <div id="feedbackResult" class="feedback-result"></div>
+        <div class="keyword-row">
+          <span class="keyword-tag kw-q"><b>문제 키워드</b> <span id="feedbackKwQ"></span></span>
+          <span class="keyword-tag kw-a"><b>답변 키워드</b> <span id="feedbackKwA"></span></span>
+          <span class="keyword-tag" id="feedbackTimeTag"><b>풀이 시간</b> <span id="feedbackTimeValue"></span></span>
+        </div>
+        <div class="feedback-explanation">
+          <h3>문제 (한글)</h3>
+          <p id="feedbackQuestionKo"></p>
+          <h3>보기 (한글)</h3>
+          <ul id="feedbackOptionsKo" class="options-ko-list"></ul>
+          <h3>해설 (한글)</h3>
+          <p id="feedbackExplanationKo"></p>
+        </div>
+      </div>
+
+      <div class="quiz-actions">
+        <button id="submitBtn" class="btn-primary">제출</button>
+        <button id="nextBtn" class="btn-primary" hidden>다음 문제</button>
+      </div>
+
+      <div id="pauseOverlay" class="pause-overlay" hidden>
+        <div class="pause-overlay-text">⏸ 일시정지됨<br><span>다시 시작하려면 "계속하기"를 눌러주세요</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== RESULT ===================== -->
+  <section id="view-result" class="view" hidden>
+    <div class="result-summary">
+      <h1>결과</h1>
+      <div class="score-circle">
+        <span id="resultScore">0%</span>
+      </div>
+      <p id="resultText"></p>
+      <p id="resultTimeText" class="result-time"></p>
+    </div>
+    <div class="result-actions">
+      <button id="reviewWrongBtn" class="btn-primary" hidden>이 시험의 오답만 다시 풀기</button>
+      <button id="backHomeBtn" class="btn-ghost">홈으로</button>
+    </div>
+    <div id="resultDetailList" class="result-detail-list"></div>
+  </section>
+
+  <!-- ===================== DAILY STATS MODAL ===================== -->
+  <div id="statsModal" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2>일별 통계</h2>
+        <button id="statsModalCloseBtn" class="btn-ghost">닫기</button>
+      </div>
+      <div id="statsTableWrap" class="stats-table-wrap">
+        <table class="stats-table">
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th>응시 횟수</th>
+              <th>푼 문제 수</th>
+              <th>맞힌 문제 수</th>
+              <th>정답률</th>
+            </tr>
+          </thead>
+          <tbody id="statsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+if (EXAM) {
+  document.getElementById("examTitle").textContent = EXAM.code + " 문제풀이";
+  document.getElementById("examName").textContent = EXAM.name;
+  document.write('<script src="data/' + EXAM.key + '.js"><\/script><script src="app.js"><\/script>');
+} else {
+  document.getElementById("view-select").hidden = false;
+  const box = document.getElementById("examSelect");
+  for (const e of Object.values(EXAMS)) {
+    let attempted = 0, mastered = 0;
+    try { attempted = Object.keys(JSON.parse(localStorage.getItem(e.key + "_attempted")) || {}).length; } catch (_) {}
+    try { mastered = Object.values(JSON.parse(localStorage.getItem(e.key + "_streak")) || {}).filter(n => n >= 5).length; } catch (_) {}
+    const a = document.createElement("a");
+    a.className = "mode-card exam-card";
+    a.href = "?exam=" + e.key;
+    a.innerHTML = '<div class="mode-title"></div><div class="mode-desc"></div><div class="exam-stat"></div>';
+    a.children[0].textContent = e.code;
+    a.children[1].textContent = e.name;
+    a.children[2].textContent = "풀어본 문제 " + attempted + "개 · 마스터 " + mastered + "개";
+    box.appendChild(a);
+  }
+}
+</script>
+</body>
+</html>
